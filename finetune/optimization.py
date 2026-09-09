@@ -1,31 +1,27 @@
 import argparse
+import logging
+import os
+import shutil
+import time
 from cmath import inf
 
-from loader import MoleculeDataset
-from torch_geometric.data import DataLoader
-
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
-import logging, time
-
-from tqdm import tqdm
-import numpy as np
-
+from loader import DEEPCHEM_MOLNET_DATASETS, MoleculeDataset
 from model import GNN, GNN_graphpred
-# from shishi2 import GNN, GNN_graphpred
-from sklearn.metrics import roc_auc_score, mean_squared_error
 from scipy.stats import pearsonr
 
-from splitters import scaffold_split, random_split
-import pandas as pd
+# from shishi2 import GNN, GNN_graphpred
+from sklearn.metrics import mean_squared_error, roc_auc_score
+from splitters import random_split, scaffold_split
+from torch_geometric.data import DataLoader
+from tqdm import tqdm
 
-import os
-import shutil
-
-from tensorboardX import SummaryWriter
+from finetune import print_parameter_summary
 
 criterion = nn.BCEWithLogitsLoss(reduction = "none")
 
@@ -177,7 +173,9 @@ def main():
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
     time_now = time.time()
-    fh = logging.FileHandler('finetune_motif_log/{}.log'.format(str(time_now)))
+
+    os.makedirs('finetune_motif_log', exist_ok=True)
+    fh = logging.FileHandler('finetune_motif_log/{}.log'.format(str(time_now)), mode='w')
     #fh = logging.FileHandler('nopretrain_motif_log/{}.log'.format(str(time_now)))
     fh.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
@@ -236,7 +234,21 @@ def main():
 
     print(dataset)
     
-    if args.split == "scaffold":
+    if args.dataset in DEEPCHEM_MOLNET_DATASETS:
+        train_idx, valid_idx, test_idx = [], [], []
+        for i, data in enumerate(dataset):
+            fold = data.fold.item()
+            if fold == 0:
+                train_idx.append(i)
+            elif fold == 1:
+                valid_idx.append(i)
+            elif fold == 2:
+                test_idx.append(i)
+        train_dataset = dataset[torch.tensor(train_idx)]
+        valid_dataset = dataset[torch.tensor(valid_idx)]
+        test_dataset = dataset[torch.tensor(test_idx)]
+        print("deepchem molnet split")
+    elif args.split == "scaffold":
         smiles_list = pd.read_csv('dataset/' + args.dataset + '/processed/smiles.csv', header=None)[0].tolist()
         train_dataset, valid_dataset, test_dataset = scaffold_split(dataset, smiles_list, null_value=0, frac_train=0.8,frac_valid=0.1, frac_test=0.1)
         print("scaffold")
@@ -266,7 +278,7 @@ def main():
 
     #set up model
     # model = GNN_graphpred(args.num_layer, args.emb_dim, num_tasks, JK = args.JK, drop_ratio = args.dropout_ratio, graph_pooling = args.graph_pooling, gnn_type = args.gnn_type)
-    model = GNN_graphpred(args.num_layer, args.emb_dim, num_tasks, logger, JK = args.JK, drop_ratio = args.dropout_ratio, graph_pooling = args.graph_pooling, gnn_type = args.gnn_type)
+    model = GNN_graphpred(args.num_layer, args.emb_dim, num_tasks, JK = args.JK, drop_ratio = args.dropout_ratio, gnn_type = args.gnn_type)
     if not args.input_model_file == "":
         model.from_pretrained(args.input_model_file)
     
@@ -278,13 +290,19 @@ def main():
     if args.GNN_para:
         logger.info('GNN update')
         model_param_group.append({"params": model.gnn.parameters()})
-        if args.graph_pooling == "attention":
+        if args.graph_pooling == "attention" and hasattr(model, "pool"):
             model_param_group.append({"params": model.pool.parameters(), "lr":args.lr*args.lr_scale})
     else:
         logger.info('No GNN update')
     model_param_group.append({"params": model.graph_pred_linear.parameters(), "lr":args.lr*args.lr_scale})
     optimizer = optim.Adam(model_param_group, lr=args.lr, weight_decay=args.decay)
     print(optimizer)
+
+    print_parameter_summary(model.gnn, "GNN model parameters")
+    print_parameter_summary(model.graph_pred_linear, "Classification head parameters")
+    head_out_features = getattr(model.graph_pred_linear, "out_features", None)
+    if head_out_features is not None:
+        print(f"Classification head output size: {head_out_features}")
 
     finetune_model_save_path = './model_checkpoints/motif_' + args.dataset + '_' + str(time_now) + '.pth'
     logger.info('====finetune_model_save_path {}'.format(finetune_model_save_path))
@@ -360,6 +378,7 @@ def main():
             if np.greater(val_auc, best_epoch_val):  # change for train loss
                 best_epoch_val = val_auc
                 patient = 0
+                os.makedirs(os.path.dirname(finetune_model_save_path), exist_ok=True)
                 torch.save(model.state_dict(), finetune_model_save_path)
             else:
                 patient += 1

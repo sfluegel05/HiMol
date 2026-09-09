@@ -1,28 +1,27 @@
 import argparse
+import os
 from cmath import inf
 
-from loader import MoleculeDataset
-from torch_geometric.loader import DataLoader
-
-
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
-from tqdm import tqdm
-import numpy as np
-
-from model import GNN, GNN_graphpred
-from sklearn.metrics import roc_auc_score, mean_squared_error, mean_absolute_error, f1_score
-
-from splitters import scaffold_split, random_split, chebi_split
-import pandas as pd
 import wandb
-
+from loader import DEEPCHEM_MOLNET_DATASETS, MoleculeDataset
 from metrics import MacroF1
+from model import GNN, GNN_graphpred
+from sklearn.metrics import (
+    f1_score,
+    mean_absolute_error,
+    mean_squared_error,
+    roc_auc_score,
+)
+from splitters import chebi_split, random_split, scaffold_split
+from torch_geometric.loader import DataLoader
 from torchmetrics.classification import MultilabelF1Score
-import os 
+from tqdm import tqdm
 
 criterion = nn.BCEWithLogitsLoss(reduction = "none")
 
@@ -211,10 +210,10 @@ def main():
     parser = argparse.ArgumentParser(description='PyTorch implementation of pre-training of graph neural networks')
     parser.add_argument('--device', type=int, default=0,
                         help='which gpu to use if any (default: 0)')
-    parser.add_argument('--batch_size', type=int, default=128,
-                        help='input batch size for training (default: 128)')
-    parser.add_argument('--epochs', type=int, default=200,
-                        help='number of epochs to train (default: 200)')
+    parser.add_argument('--batch_size', type=int, default=32,
+                        help='input batch size for training (default: 32)')
+    parser.add_argument('--epochs', type=int, default=100,
+                        help='number of epochs to train (default: 100)')
     parser.add_argument('--lr_feat', type=float, default=0.001,
                         help='learning rate (default: 0.001)')
     parser.add_argument('--lr_pred', type=float, default=0.001,
@@ -245,7 +244,7 @@ def main():
     parser.add_argument('--GNN_para', type=bool, default = True, help='if the parameter of pretrain update')
     parser.add_argument('--wandb_entity', type=str, default='chebai',
                         help='Weights & Biases entity (username or team name)')
-    parser.add_argument('--wandb_project', type=str, default='himol',
+    parser.add_argument('--wandb_project', type=str, default='chebai',
                         help='Weights & Biases project name')
     parser.add_argument('--wandb_run_name', type=str, default=None,
                         help='Weights & Biases run name (default: dataset-seed)')
@@ -256,7 +255,7 @@ def main():
 
     run_name = args.wandb_run_name or ('%s-run%d' % (args.dataset, args.runseed))
     run = wandb.init(entity=args.wandb_entity, project=args.wandb_project, name=run_name,
-                     mode=args.wandb_mode, config=vars(args))
+                     mode=args.wandb_mode, config=vars(args), tags=[args.dataset, 'himol'])
 
     torch.manual_seed(args.runseed)
     np.random.seed(args.runseed)
@@ -317,6 +316,20 @@ def main():
         train_dataset, valid_dataset, test_dataset = chebi_split(
             dataset, ids_list, args.split_file)
         print("chebi split from %s" % args.split_file)
+    if args.dataset in DEEPCHEM_MOLNET_DATASETS:
+        train_idx, valid_idx, test_idx = [], [], []
+        for i, data in enumerate(dataset):
+            fold = data.fold.item()
+            if fold == 0:
+                train_idx.append(i)
+            elif fold == 1:
+                valid_idx.append(i)
+            elif fold == 2:
+                test_idx.append(i)
+        train_dataset = dataset[torch.tensor(train_idx)]
+        valid_dataset = dataset[torch.tensor(valid_idx)]
+        test_dataset = dataset[torch.tensor(test_idx)]
+        print("deepchem molnet split")
     elif args.split == "scaffold":
         smiles_list = pd.read_csv('dataset/' + args.dataset + '/processed/smiles.csv', header=None)[0].tolist()
         train_dataset, valid_dataset, test_dataset, _ = scaffold_split(dataset, smiles_list, null_value=0, frac_train=0.8,frac_valid=0.1, frac_test=0.1)
@@ -343,12 +356,11 @@ def main():
     
     model.to(device)
 
-    if args.dataset == 'chebi':
-        print_parameter_summary(model.gnn, "GNN model parameters")
-        print_parameter_summary(model.graph_pred_linear, "Classification head parameters")
-        head_out_features = getattr(model.graph_pred_linear, "out_features", None)
-        if head_out_features is not None:
-            print(f"Classification head output size: {head_out_features}")
+    print_parameter_summary(model.gnn, "GNN model parameters")
+    print_parameter_summary(model.graph_pred_linear, "Classification head parameters")
+    head_out_features = getattr(model.graph_pred_linear, "out_features", None)
+    if head_out_features is not None:
+        print(f"Classification head output size: {head_out_features}")
 
     #set up optimizer
     #different learning rate for different part of GNN
@@ -399,7 +411,8 @@ def main():
             run.log(log)
 
     elif task_type == 'cls':
-        train_auc_list, test_auc_list = [], []
+        best_epoch_val = -1.0
+        best_epoch_number = 0
         for epoch in range(1, args.epochs+1):
             print('====epoch:',epoch)
 
@@ -412,18 +425,23 @@ def main():
                 print('omit the training accuracy computation')
                 train_auc = 0
             val_auc, val_loss = eval(args, model, device, val_loader)
-            test_auc, test_loss = eval(args, model, device, test_loader)
-            test_auc_list.append(float('{:.4f}'.format(test_auc)))
-            train_auc_list.append(float('{:.4f}'.format(train_auc)))
 
-            torch.save(model.state_dict(), finetune_model_save_path)
+            if val_auc > best_epoch_val:  
+                best_epoch_val = val_auc
+                best_epoch_number = epoch
+                torch.save(model.state_dict(), finetune_model_save_path)
 
-            print("train_auc: %f val_auc: %f test_auc: %f" %(train_auc, val_auc, test_auc))
+            print("train_auc: %f val_auc: %f" %(train_auc, val_auc))
 
             run.log({'epoch': epoch,
-                     'train/auc': train_auc, 'val/auc': val_auc, 'test/auc': test_auc,
+                     'train/auc': train_auc, 'val/auc': val_auc,
                      'train/loss': float(train_loss), 'val/loss': float(val_loss),
-                     'test/loss': float(test_loss)})
+                     })
+                
+        model.load_state_dict(torch.load(finetune_model_save_path))
+        test_auc, test_loss = eval(args, model, device, test_loader)
+        print("best epoch %d val_auc: %f test_auc: %f" %(best_epoch_number, best_epoch_val, test_auc))
+
 
 
     elif task_type == 'reg':

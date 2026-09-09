@@ -1,0 +1,110 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Himol BBBP",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/aditya/HiMol/finetune/finetune.py",
+            "console": "integratedTerminal",
+            "cwd": "/home/aditya/HiMol/finetune",
+            "args": [
+                "--dataset=bbbp",
+                "--input_model_file=/home/aditya/HiMol/.saved_model/pretrain.pth",
+                "--lr_feat=0.0005",
+                "--lr_pred=0.001",
+                "--dropout_ratio=0.5",
+                "--runseed=12345",
+                // "--wandb_mode=disabled"
+            ],
+        },
+        {
+            "name": "Himol BACE",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/aditya/HiMol/finetune/finetune.py",
+            "console": "integratedTerminal",
+            "cwd": "/home/aditya/HiMol/finetune",
+            "args": [
+                "--dataset=bace",
+                "--input_model_file=/home/aditya/HiMol/.saved_model/pretrain.pth",
+                "--lr_feat=0.001",
+                "--lr_pred=0.001",
+                "--dropout_ratio=0.5",
+                "--runseed=12345",
+                // "--wandb_mode=disabled"
+            ],
+        },
+        {
+            "name": "Himol Tox21",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/aditya/HiMol/finetune/finetune.py",
+            "console": "integratedTerminal",
+            "cwd": "/home/aditya/HiMol/finetune",
+            "args": [
+                "--dataset=tox21",
+                "--input_model_file=/home/aditya/HiMol/.saved_model/pretrain.pth",
+                "--lr_feat=0.0005",
+                "--lr_pred=0.001",
+                "--dropout_ratio=0.7",
+                "--runseed=12345",
+                // "--wandb_mode=disabled"
+            ],
+        },
+        {
+            "name": "Himol ToxCast",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/aditya/HiMol/finetune/finetune.py",
+            "console": "integratedTerminal",
+            "cwd": "/home/aditya/HiMol/finetune",
+            "args": [
+                "--dataset=toxcast",
+                "--input_model_file=/home/aditya/HiMol/.saved_model/pretrain.pth",
+                "--lr_feat=0.001",
+                "--lr_pred=0.001",
+                "--dropout_ratio=0.7",
+                "--runseed=42",
+                // "--wandb_mode=disabled"
+            ],
+        },
+        {
+            "name": "Himol SIDER",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/aditya/HiMol/finetune/finetune.py",
+            "console": "integratedTerminal",
+            "cwd": "/home/aditya/HiMol/finetune",
+            "args": [
+                "--dataset=sider",
+                "--input_model_file=/home/aditya/HiMol/.saved_model/pretrain.pth",
+                "--lr_feat=0.0005",
+                "--lr_pred=0.001",
+                "--dropout_ratio=0.5",
+                "--runseed=42",
+                // "--wandb_mode=disabled"
+            ],
+        },
+        {
+            "name": "Himol ClinTox",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/aditya/HiMol/finetune/finetune.py",
+            "console": "integratedTerminal",
+            "cwd": "/home/aditya/HiMol/finetune",
+            "args": [
+                "--dataset=clintox",
+                "--input_model_file=/home/aditya/HiMol/.saved_model/pretrain.pth",
+                "--lr_feat=0.001",
+                "--lr_pred=0.001",
+                "--dropout_ratio=0.5",
+                "--runseed=0",
+                // "--wandb_mode=disabled"
+            ],
+        },
+    ]
+}

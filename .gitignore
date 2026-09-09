@@ -26,3 +26,6 @@ wandb/
 *.out
 *.sh
 *.json
+
+!.vscode/launch.json
+*.log

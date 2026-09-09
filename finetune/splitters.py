@@ -94,9 +94,9 @@ def scaffold_split(dataset, smiles_list, task_idx=None, null_value=0,
     assert len(set(test_idx).intersection(set(valid_idx))) == 0
 
     
-    print('idx',train_idx, len(train_idx))
-    print('idx',valid_idx, len(valid_idx))
-    print('idx',test_idx, len(test_idx))
+    print('idx',len(train_idx))
+    print('idx',len(valid_idx))
+    print('idx',len(test_idx))
 
     train_dataset = dataset[torch.tensor(train_idx)]
     valid_dataset = dataset[torch.tensor(valid_idx)]
