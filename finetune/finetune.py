@@ -179,9 +179,9 @@ def eval_chebi(args, model, device, loader):
     eval_roc = sum(roc_list) / len(roc_list) if roc_list else 0.0
 
     # micro / macro F1 at logit threshold 0
-    y_true_bin = (y_true + 1) / 2          # 0 / 1
+    y_true_bin = ((y_true + 1) // 2).astype(int)   # 0 / 1
     y_pred_bin = (y_scores > 0).astype(int)
-    micro_f1_obj = MultilabelF1Score(num_labels=y_true.shape[1], average="macro")
+    micro_f1_obj = MultilabelF1Score(num_labels=y_true.shape[1], average="micro")
     macro_f1_obj = MacroF1(num_labels=y_true.shape[1])
 
     micro_f1 = micro_f1_obj(torch.tensor(y_pred_bin), torch.tensor(y_true_bin))
