@@ -412,6 +412,8 @@ def main():
     # training based on task type
     if task_type == 'cls' and args.dataset == 'chebi':
         # multi-label: report both micro/macro F1 (chebai standard) and mean AUC
+        best_epoch_val_macro_f1 = -1.0
+        best_epoch_number = 0
         for epoch in range(1, args.epochs + 1):
             print('====epoch:', epoch)
 
@@ -426,20 +428,30 @@ def main():
             else:
                 print('omit the training accuracy computation')
             val_m = eval_chebi(args, model, device, val_loader)
-            test_m = eval_chebi(args, model, device, test_loader)
             for k, v in val_m.items():
                 log['val/' + k] = v
-            for k, v in test_m.items():
-                log['test/' + k] = v
 
-            torch.save(model.state_dict(), finetune_model_save_path)
+            val_macro_f1 = float(val_m['macro_f1'])
+            if val_macro_f1 > best_epoch_val_macro_f1:
+                best_epoch_val_macro_f1 = val_macro_f1
+                best_epoch_number = epoch
+                torch.save(model.state_dict(), finetune_model_save_path)
 
             print("val   micro_f1: %f macro_f1: %f auc: %f" %
                   (val_m['micro_f1'], val_m['macro_f1'], val_m['auc']))
-            print("test  micro_f1: %f macro_f1: %f auc: %f" %
-                  (test_m['micro_f1'], test_m['macro_f1'], test_m['auc']))
 
             run.log(log)
+
+        model.load_state_dict(torch.load(finetune_model_save_path))
+        test_m = eval_chebi(args, model, device, test_loader)
+        test_log = {'epoch': best_epoch_number}
+        for k, v in test_m.items():
+            test_log['test/' + k] = v
+        print("best epoch %d val_macro_f1: %f" %
+              (best_epoch_number, best_epoch_val_macro_f1))
+        print("test  micro_f1: %f macro_f1: %f auc: %f" %
+              (test_m['micro_f1'], test_m['macro_f1'], test_m['auc']))
+        run.log(test_log)
 
     elif task_type == 'cls':
         best_epoch_val = -1.0
