@@ -114,8 +114,35 @@ def eval(args, model, device, loader):
         print("Missing ratio: %f" %(1 - float(len(roc_list))/y_true.shape[1]))
 
     eval_roc = sum(roc_list)/len(roc_list) #y_true.shape[1]
+    valid_mask = y_true**2 > 0
+    if args.dataset in ("bace", "bbbp"):
+        f1 = f1_score(
+            ((y_true[valid_mask] + 1) / 2).astype(int),
+            (y_scores[valid_mask] > 0).astype(int),
+            zero_division=0,
+        )
+        return eval_roc, loss, f1
 
-    return eval_roc, loss
+    metric_labels = np.where(
+        valid_mask,
+        (y_true + 1) / 2,
+        -1,
+    ).astype(int)
+    y_true_tensor = torch.tensor(metric_labels, dtype=torch.int64)
+    y_prob_tensor = torch.sigmoid(torch.tensor(y_scores, dtype=torch.float32))
+    micro_f1_metric = MultilabelF1Score(
+        num_labels=y_true.shape[1],
+        average="micro",
+        ignore_index=-1,
+    )
+    macro_f1_metric = MacroF1(
+        num_labels=y_true.shape[1],
+        ignore_index=-1,
+    )
+    micro_f1 = micro_f1_metric(y_prob_tensor, y_true_tensor).item()
+    macro_f1 = macro_f1_metric(y_prob_tensor, y_true_tensor).item()
+
+    return eval_roc, loss, micro_f1, macro_f1
 
 def eval_chebi(args, model, device, loader):
     """Multi-label evaluation for ChEBI: mean per-task ROC-AUC plus micro/macro
@@ -154,8 +181,6 @@ def eval_chebi(args, model, device, loader):
     # micro / macro F1 at logit threshold 0
     y_true_bin = (y_true + 1) / 2          # 0 / 1
     y_pred_bin = (y_scores > 0).astype(int)
-    # micro_f1 = f1_score(y_true_bin, y_pred_bin, average='micro', zero_division=0)
-    # macro_f1 = f1_score(y_true_bin, y_pred_bin, average='macro', zero_division=0)
     micro_f1_obj = MultilabelF1Score(num_labels=y_true.shape[1], average="macro")
     macro_f1_obj = MacroF1(num_labels=y_true.shape[1])
 
@@ -232,7 +257,7 @@ def main():
                         help='gnn_type (gat, gin, gcn, graphsage)')
     parser.add_argument('--dataset', type=str, default = 'chebi', 
                         help='[chebi, bbbp, bace, sider, clintox, sider,tox21, toxcast, esol,freesolv,lipophilicity]')
-    parser.add_argument('--input_model_file', type=str, default = '../saved_model/pretrain.pth', help='filename to read the model (if there is any)')
+    parser.add_argument('--input_model_file', type=str, default = '', help='filename to read the model (if there is any)')
     parser.add_argument('--filename', type=str, default = '', help='output filename')
     parser.add_argument('--seed', type=int, default=42, help = "Seed for splitting the dataset.")
     parser.add_argument('--runseed', type=int, default=0, help = "Seed for minibatch selection, random initialization.")
@@ -255,7 +280,7 @@ def main():
 
     run_name = args.wandb_run_name or ('%s-run%d' % (args.dataset, args.runseed))
     run = wandb.init(entity=args.wandb_entity, project=args.wandb_project, name=run_name,
-                     mode=args.wandb_mode, config=vars(args), tags=[args.dataset, 'himol'])
+                     mode=args.wandb_mode, config=vars(args), tags=[args.dataset, 'himol', "without-msp"])
 
     torch.manual_seed(args.runseed)
     np.random.seed(args.runseed)
@@ -303,7 +328,10 @@ def main():
         raise ValueError("Invalid dataset name.")
 
     #set up dataset
-    dataset = MoleculeDataset("dataset/" + args.dataset, dataset=args.dataset)
+    # set np to data seed for splitting the dataset, deepchem molnet uses np
+    np.random.seed(args.seed) 
+    dataset = MoleculeDataset("dataset/" + args.dataset, dataset=args.dataset )
+    np.random.seed(args.runseed) # reset np to run seed for training
     
     print(dataset)
     
@@ -352,7 +380,10 @@ def main():
     #set up model
     model = GNN_graphpred(args.num_layer, args.emb_dim, num_tasks, JK = args.JK, drop_ratio = args.dropout_ratio, gnn_type = args.gnn_type)
     if not args.input_model_file == "":
+        print("Loading pre-trained model from %s" % args.input_model_file)
         model.from_pretrained(args.input_model_file)
+    else:
+        print("No pre-trained model provided. Training from scratch.")
     
     model.to(device)
 
@@ -420,27 +451,80 @@ def main():
 
             print('====Evaluation')
             if args.eval_train:
-                train_auc, train_loss = eval(args, model, device, train_loader)
+                train_metrics = eval(args, model, device, train_loader)
             else:
                 print('omit the training accuracy computation')
-                train_auc = 0
-            val_auc, val_loss = eval(args, model, device, val_loader)
+                train_metrics = (0, 0, 0) if args.dataset in ("bace", "bbbp") else (0, 0, 0, 0)
+            val_metrics = eval(args, model, device, val_loader)
+
+            if args.dataset in ("bace", "bbbp"):
+                train_auc, train_loss, train_f1 = train_metrics
+                val_auc, val_loss, val_f1 = val_metrics
+            else:
+                train_auc, train_loss, train_micro_f1, train_macro_f1 = train_metrics
+                val_auc, val_loss, val_micro_f1, val_macro_f1 = val_metrics
 
             if val_auc > best_epoch_val:  
                 best_epoch_val = val_auc
                 best_epoch_number = epoch
                 torch.save(model.state_dict(), finetune_model_save_path)
 
-            print("train_auc: %f val_auc: %f" %(train_auc, val_auc))
-
-            run.log({'epoch': epoch,
-                     'train/auc': train_auc, 'val/auc': val_auc,
-                     'train/loss': float(train_loss), 'val/loss': float(val_loss),
-                     })
+            if args.dataset in ("bace", "bbbp"):
+                print("train_auc: %f train_f1: %f val_auc: %f val_f1: %f" %
+                      (train_auc, train_f1, val_auc, val_f1))
+                run.log({
+                    'epoch': epoch,
+                    'train/auc': train_auc,
+                    'val/auc': val_auc,
+                    'train/f1': train_f1,
+                    'val/f1': val_f1,
+                    'train/loss': float(train_loss),
+                    'val/loss': float(val_loss),
+                })
+            else:
+                print(
+                    "train_auc: %f train_micro_f1: %f train_macro_f1: %f "
+                    "val_auc: %f val_micro_f1: %f val_macro_f1: %f"
+                    % (
+                        train_auc,
+                        train_micro_f1,
+                        train_macro_f1,
+                        val_auc,
+                        val_micro_f1,
+                        val_macro_f1,
+                    )
+                )
+                run.log({
+                    'epoch': epoch,
+                    'train/auc': train_auc,
+                    'val/auc': val_auc,
+                    'train/micro_f1': train_micro_f1,
+                    'train/macro_f1': train_macro_f1,
+                    'val/micro_f1': val_micro_f1,
+                    'val/macro_f1': val_macro_f1,
+                    'train/loss': float(train_loss),
+                    'val/loss': float(val_loss),
+                })
                 
         model.load_state_dict(torch.load(finetune_model_save_path))
-        test_auc, test_loss = eval(args, model, device, test_loader)
-        print("best epoch %d val_auc: %f test_auc: %f" %(best_epoch_number, best_epoch_val, test_auc))
+        test_metrics = eval(args, model, device, test_loader)
+        if args.dataset in ("bace", "bbbp"):
+            test_auc, test_loss, test_f1 = test_metrics
+            print("best epoch %d val_auc: %f test_auc: %f test_f1: %f" %
+                  (best_epoch_number, best_epoch_val, test_auc, test_f1))
+        else:
+            test_auc, test_loss, test_micro_f1, test_macro_f1 = test_metrics
+            print(
+                "best epoch %d val_auc: %f test_auc: %f test_micro_f1: %f "
+                "test_macro_f1: %f"
+                % (
+                    best_epoch_number,
+                    best_epoch_val,
+                    test_auc,
+                    test_micro_f1,
+                    test_macro_f1,
+                )
+            )
 
 
 

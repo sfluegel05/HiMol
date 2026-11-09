@@ -29,3 +29,7 @@ wandb/
 
 !.vscode/launch.json
 *.log
+
+*.txt
+*.tsv
+!finetune/molnet.sh

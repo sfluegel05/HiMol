@@ -13,11 +13,11 @@
             "cwd": "/home/aditya/HiMol/finetune",
             "args": [
                 "--dataset=bbbp",
-                "--input_model_file=/home/aditya/HiMol/.saved_model/pretrain.pth",
+                // "--input_model_file=/home/aditya/HiMol/.saved_model/pretrain.pth",
                 "--lr_feat=0.0005",
                 "--lr_pred=0.001",
                 "--dropout_ratio=0.5",
-                "--runseed=12345",
+                "--runseed=0",
                 // "--wandb_mode=disabled"
             ],
         },
@@ -30,11 +30,11 @@
             "cwd": "/home/aditya/HiMol/finetune",
             "args": [
                 "--dataset=bace",
-                "--input_model_file=/home/aditya/HiMol/.saved_model/pretrain.pth",
+                // "--input_model_file=/home/aditya/HiMol/.saved_model/pretrain.pth",
                 "--lr_feat=0.001",
                 "--lr_pred=0.001",
                 "--dropout_ratio=0.5",
-                "--runseed=12345",
+                "--runseed=42",
                 // "--wandb_mode=disabled"
             ],
         },
@@ -51,7 +51,7 @@
                 "--lr_feat=0.0005",
                 "--lr_pred=0.001",
                 "--dropout_ratio=0.7",
-                "--runseed=12345",
+                "--runseed=42",
                 // "--wandb_mode=disabled"
             ],
         },
@@ -104,6 +104,17 @@
                 "--dropout_ratio=0.5",
                 "--runseed=0",
                 // "--wandb_mode=disabled"
+            ],
+        },
+        {
+            "name": "Himol Pretrain",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/aditya/HiMol/pretrain.py",
+            "console": "integratedTerminal",
+            "cwd": "/home/aditya/HiMol/",
+            "args": [
+                "--wandb_mode=disabled"
             ],
         },
     ]
