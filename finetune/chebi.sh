@@ -68,7 +68,7 @@ python finetune.py \
     --num_workers=10 \
     --wandb_run_name="$RUN_NAME" \
     --epochs=200 \
-    --seed="$SEED"
+    --runseed="$SEED"
     # ----- default parameters give the best macro-f1 performance than 
     # the corresponding parameters for ChEBI and others
     # --dropout_ratio=0 \
