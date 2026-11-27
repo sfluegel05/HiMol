@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import wandb
 from loader import DEEPCHEM_MOLNET_DATASETS, MoleculeDataset
 from metrics import MacroF1
 from model import GNN, GNN_graphpred
@@ -22,6 +21,8 @@ from splitters import chebi_split, random_split, scaffold_split
 from torch_geometric.loader import DataLoader
 from torchmetrics.classification import MultilabelF1Score
 from tqdm import tqdm
+
+import wandb
 
 criterion = nn.BCEWithLogitsLoss(reduction = "none")
 
@@ -179,9 +180,9 @@ def eval_chebi(args, model, device, loader):
     eval_roc = sum(roc_list) / len(roc_list) if roc_list else 0.0
 
     # micro / macro F1 at logit threshold 0
-    y_true_bin = (y_true + 1) / 2          # 0 / 1
+    y_true_bin = ((y_true + 1) // 2).astype(int)   # 0 / 1
     y_pred_bin = (y_scores > 0).astype(int)
-    micro_f1_obj = MultilabelF1Score(num_labels=y_true.shape[1], average="macro")
+    micro_f1_obj = MultilabelF1Score(num_labels=y_true.shape[1], average="micro")
     macro_f1_obj = MacroF1(num_labels=y_true.shape[1])
 
     micro_f1 = micro_f1_obj(torch.tensor(y_pred_bin), torch.tensor(y_true_bin))
@@ -242,7 +243,7 @@ def main():
     parser.add_argument('--lr_feat', type=float, default=0.001,
                         help='learning rate (default: 0.001)')
     parser.add_argument('--lr_pred', type=float, default=0.001,
-                        help='learning rate for the prediction layer (default: 0.0005)')
+                        help='learning rate for the prediction layer (default: 0.001)')
     parser.add_argument('--decay', type=float, default=0,
                         help='weight decay (default: 0)')
     parser.add_argument('--num_layer', type=int, default=5,
@@ -287,6 +288,8 @@ def main():
     device = torch.device("cuda:" + str(args.device)) if torch.cuda.is_available() else torch.device("cpu")
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.runseed)
+    else:
+        raise ValueError("CUDA is not available. Please check your environment.")
 
     if args.dataset in ['tox21', 'hiv', 'pcba', 'muv', 'bace', 'bbbp', 'toxcast', 'sider', 'clintox', 'mutag', 'chebi']:
         task_type = 'cls'
@@ -412,6 +415,8 @@ def main():
     # training based on task type
     if task_type == 'cls' and args.dataset == 'chebi':
         # multi-label: report both micro/macro F1 (chebai standard) and mean AUC
+        best_epoch_val_macro_f1 = -1.0
+        best_epoch_number = 0
         for epoch in range(1, args.epochs + 1):
             print('====epoch:', epoch)
 
@@ -426,20 +431,30 @@ def main():
             else:
                 print('omit the training accuracy computation')
             val_m = eval_chebi(args, model, device, val_loader)
-            test_m = eval_chebi(args, model, device, test_loader)
             for k, v in val_m.items():
                 log['val/' + k] = v
-            for k, v in test_m.items():
-                log['test/' + k] = v
 
-            torch.save(model.state_dict(), finetune_model_save_path)
+            val_macro_f1 = float(val_m['macro_f1'])
+            if val_macro_f1 > best_epoch_val_macro_f1:
+                best_epoch_val_macro_f1 = val_macro_f1
+                best_epoch_number = epoch
+                torch.save(model.state_dict(), finetune_model_save_path)
 
             print("val   micro_f1: %f macro_f1: %f auc: %f" %
                   (val_m['micro_f1'], val_m['macro_f1'], val_m['auc']))
-            print("test  micro_f1: %f macro_f1: %f auc: %f" %
-                  (test_m['micro_f1'], test_m['macro_f1'], test_m['auc']))
 
             run.log(log)
+
+        model.load_state_dict(torch.load(finetune_model_save_path))
+        test_m = eval_chebi(args, model, device, test_loader)
+        test_log = {'epoch': best_epoch_number}
+        for k, v in test_m.items():
+            test_log['test/' + k] = v
+        print("best epoch %d val_macro_f1: %f" %
+              (best_epoch_number, best_epoch_val_macro_f1))
+        print("test  micro_f1: %f macro_f1: %f auc: %f" %
+              (test_m['micro_f1'], test_m['macro_f1'], test_m['auc']))
+        run.log(test_log)
 
     elif task_type == 'cls':
         best_epoch_val = -1.0
