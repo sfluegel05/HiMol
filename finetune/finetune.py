@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import wandb
 from loader import DEEPCHEM_MOLNET_DATASETS, MoleculeDataset
 from metrics import MacroF1
 from model import GNN, GNN_graphpred
@@ -22,6 +21,8 @@ from splitters import chebi_split, random_split, scaffold_split
 from torch_geometric.loader import DataLoader
 from torchmetrics.classification import MultilabelF1Score
 from tqdm import tqdm
+
+import wandb
 
 criterion = nn.BCEWithLogitsLoss(reduction = "none")
 
@@ -242,7 +243,7 @@ def main():
     parser.add_argument('--lr_feat', type=float, default=0.001,
                         help='learning rate (default: 0.001)')
     parser.add_argument('--lr_pred', type=float, default=0.001,
-                        help='learning rate for the prediction layer (default: 0.0005)')
+                        help='learning rate for the prediction layer (default: 0.001)')
     parser.add_argument('--decay', type=float, default=0,
                         help='weight decay (default: 0)')
     parser.add_argument('--num_layer', type=int, default=5,

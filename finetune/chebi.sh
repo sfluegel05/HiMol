@@ -45,20 +45,33 @@ export SSL_CERT_FILE=$(python -m certifi)
 # Load Python environment
 source /home/staff/a/akhedekar/python-chebai-graph/.venv/bin/activate
 
+python - <<'PY'
+import torch
+
+if not torch.cuda.is_available():
+    raise RuntimeError("PyTorch cannot access a CUDA GPU; stopping before training.")
+
+print(f"PyTorch detected {torch.cuda.device_count()} CUDA GPU(s).")
+PY
+
+
 # Set current working directory
 CHEBAI_DIR="/home/staff/a/akhedekar/HiMol/finetune"
 cd $CHEBAI_DIR
 
-RUN_NAME="himol_final_${SEED}_d0"
+RUN_NAME="himol_chebi_final_${SEED}_default_params"
 # Tried with other dropout values too 
 python finetune.py \
     --dataset=chebi \
     --input_model_file=/home/staff/a/akhedekar/HiMol/.saved_model/pretrain.pth \
     --split_file=/home/staff/a/akhedekar/python-chebai/data/chebi_v252/ChEBI50/processed/splits.csv \
     --num_workers=10 \
-    --lr_feat=0.001  \
-    --lr_pred=0.001 \
-    --dropout_ratio=0 \ 
-    --batch_size=64 \
     --wandb_run_name="$RUN_NAME" \
-    --seed="$SEED" 
+    --epochs=200 \
+    --seed="$SEED"
+    # ----- default parameters give the best macro-f1 performance than 
+    # the corresponding parameters for ChEBI and others
+    # --dropout_ratio=0 \
+    # --batch_size=64 \
+    # --lr_feat=0.002 \
+    # --lr_pred=0.002 \
