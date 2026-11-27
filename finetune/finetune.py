@@ -281,7 +281,7 @@ def main():
 
     run_name = args.wandb_run_name or ('%s-run%d' % (args.dataset, args.runseed))
     run = wandb.init(entity=args.wandb_entity, project=args.wandb_project, name=run_name,
-                     mode=args.wandb_mode, config=vars(args), tags=[args.dataset, 'himol', "without-msp"])
+                     mode=args.wandb_mode, config=vars(args), tags=[args.dataset, 'himol'])
 
     torch.manual_seed(args.runseed)
     np.random.seed(args.runseed)
